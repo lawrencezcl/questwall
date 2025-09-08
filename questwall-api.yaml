@@ -1,0 +1,274 @@
+openapi: 3.0.3
+info:
+  title: Quest Wall MiniApp API
+  version: 1.0.0
+  description: >
+    Telegram MiniApp（TON）任务墙 API。
+    鉴权依赖 Telegram WebApp initData 验签与短期 JWT；
+    链上交互通过 TON Connect。
+servers:
+  - url: https://api.example.com/api/v1
+    description: Production
+  - url: https://staging.example.com/api/v1
+    description: Staging
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    User:
+      type: object
+      properties:
+        id: {"type":"integer"}
+        tg_id: {"type":"integer"}
+        wallet_addr: {"type":"string"}
+        locale: {"type":"string"}
+        risk_score: {"type":"integer"}
+        created_at: {"type":"string","format":"date-time"}
+    Quest:
+      type: object
+      properties:
+        id: {"type":"integer"}
+        type: {"type":"string","enum":["join_channel","join_group","deep_link","onchain_transfer","mint_nft","form"]}
+        reward:
+          type: object
+          properties:
+            type: {"type":"string","enum":["stars","jetton","nft"]}
+            amount: {"type":"string"}
+            assetAddr: {"type":"string","nullable": true}
+        limits:
+          type: object
+          properties:
+            dailyCap: {"type":"integer"}
+            perUserCap: {"type":"integer"}
+        status: {"type":"string","enum":["draft","active","paused","ended"]}
+        created_at: {"type":"string","format":"date-time"}
+    ActionSubmit:
+      type: object
+      properties:
+        proof:
+          type: object
+          additionalProperties: true
+    Reward:
+      type: object
+      properties:
+        id: {"type":"integer"}
+        user_id: {"type":"integer"}
+        quest_id: {"type":"integer"}
+        type: {"type":"string"}
+        amount: {"type":"string"}
+        asset: {"type":"string"}
+        tx_hash: {"type":"string","nullable": true}
+        stars_tx_id: {"type":"string","nullable": true}
+        created_at: {"type":"string","format":"date-time"}
+security:
+  - bearerAuth: []
+
+paths:
+  /auth/telegram:
+    post:
+      summary: 使用 Telegram initData 换取 JWT
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                initData:
+                  type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  token: {type: string}
+                  expiresIn: {type: integer}
+                  user: { $ref: '#/components/schemas/User' }
+  /auth/refresh:
+    post:
+      summary: 刷新 JWT
+      responses:
+        '200':
+          description: OK
+
+  /quests:
+    get:
+      summary: 任务列表
+      parameters:
+        - in: query
+          name: page
+          schema: {type: integer, default: 1}
+        - in: query
+          name: pageSize
+          schema: {type: integer, default: 20}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items: {$ref: '#/components/schemas/Quest'}
+                  total: {type: integer}
+    post:
+      summary: 创建任务（广告主）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Quest'
+      responses:
+        '201':
+          description: Created
+
+  /quests/{id}:
+    get:
+      summary: 任务详情
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: {type: integer}
+      responses:
+        '200':
+          description: OK
+
+  /quests/{id}/claim:
+    post:
+      summary: 领取任务
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: {type: integer}
+      responses:
+        '200':
+          description: OK
+
+  /quests/{id}/submit:
+    post:
+      summary: 提交任务证明
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: {type: integer}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ActionSubmit'
+      responses:
+        '200':
+          description: OK
+
+  /quests/{id}/reward:
+    post:
+      summary: 发放奖励（内部/管理）
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: {type: integer}
+      responses:
+        '200':
+          description: OK
+
+  /wallet/connect/start:
+    post:
+      summary: 启动 TonConnect 连接
+      responses:
+        '200':
+          description: OK
+
+  /wallet/tx/prepare:
+    post:
+      summary: 生成链上交易 payload
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                kind: {type: string, enum: ["jetton_transfer","ton_transfer","nft_mint"]}
+                to: {type: string}
+                amount: {type: string}
+                comment: {type: string}
+      responses:
+        '200':
+          description: OK
+
+  /wallet/tx/confirm:
+    post:
+      summary: 回写签名/提交记录
+      responses:
+        '200':
+          description: OK
+
+  /wallet/tx/{id}:
+    get:
+      summary: 查询交易状态
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: {type: string}
+      responses:
+        '200':
+          description: OK
+
+  /rewards:
+    get:
+      summary: 我的奖励
+      responses:
+        '200':
+          description: OK
+
+  /rewards/withdraw:
+    post:
+      summary: 提现（Stars→Toncoin 或 Jetton）
+      responses:
+        '200':
+          description: OK
+
+  /payouts/{id}:
+    get:
+      summary: 提现单状态
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: {type: string}
+      responses:
+        '200':
+          description: OK
+
+  /ads/callback/adsgram:
+    post:
+      summary: Adsgram 回调
+      responses:
+        '200':
+          description: OK
+
+  /billing/report:
+    get:
+      summary: 广告主日报/消耗
+      parameters:
+        - in: query
+          name: date
+          schema: {type: string, format: date}
+      responses:
+        '200':
+          description: OK
